@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#090b12">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%23d8b576'/%3E%3C/svg%3E">
+<title>ECLIPSE — Cinzas do Amanhã</title>
+<style>
+:root{color-scheme:dark;--ink:#090b12;--muted:#a5a9b5;--gold:#edc77b;--red:#e56661}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:radial-gradient(ellipse at 50% 42%,#20212a 0,#0d1018 53%,#07090e 100%);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;color:#f2eee5;touch-action:none}
+body{display:grid;place-items:center}.frame{width:min(100vw,160vh);position:relative;filter:drop-shadow(0 20px 50px #000b)}canvas{display:block;width:100%;height:auto;aspect-ratio:16/9;image-rendering:pixelated;background:#10131c;border:1px solid #73604d;outline:1px solid #17171b;outline-offset:4px}
+#hud{position:absolute;inset:0;pointer-events:none;padding:3.1% 3.5%;display:flex;justify-content:space-between;align-items:flex-start;font-size:clamp(9px,1.35vw,15px);text-shadow:0 2px 3px #000;letter-spacing:.08em}.hudleft{display:grid;gap:7px}.hearts{color:#e57972;letter-spacing:.17em;font-size:1.15em}.memory{color:var(--gold)}.roomlabel{color:#d7d1c5;text-align:right;font-size:.88em}.hint{position:absolute;bottom:5%;left:50%;transform:translateX(-50%);white-space:nowrap;color:#e8dfcb;background:#11141bd9;border:1px solid #655944;padding:7px 10px;font-size:clamp(8px,1.15vw,12px);letter-spacing:.04em;text-shadow:0 1px #000}.mobile{display:none;position:absolute;inset:auto 0 2%;padding:0 4%;justify-content:space-between;align-items:end;pointer-events:none}.pad,.action{pointer-events:auto;display:grid;place-items:center;user-select:none;-webkit-user-select:none;touch-action:none;color:#f2e8d2;background:#131821bf;border:1px solid #87765a;border-radius:50%;box-shadow:inset 0 0 12px #fff1;font-weight:bold}.pad{width:clamp(38px,12vw,62px);height:clamp(38px,12vw,62px);font-size:20px;opacity:.76}.cross{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:4px}.cross .pad{grid-row:span 1}.cross .up{grid-column:2}.cross .left{grid-column:1;grid-row:2}.cross .down{grid-column:2;grid-row:2}.cross .right{grid-column:3;grid-row:2}.actions{display:flex;gap:10px;align-items:end}.action{width:clamp(48px,14vw,68px);height:clamp(48px,14vw,68px);font-size:11px;opacity:.83}.action.attack{border-color:#b36963;color:#ffb5a4}.action.interact{width:clamp(40px,11vw,55px);height:clamp(40px,11vw,55px);font-size:10px}
+@media (pointer:coarse){.mobile{display:flex}.hint{bottom:22%}}@media(max-aspect-ratio:1/1){.frame{width:100vw}.hint{white-space:normal;text-align:center;width:78%}}
+</style>
+</head>
+<body>
+<main class="frame" aria-label="Jogo ECLIPSE">
+<canvas id="game" width="320" height="180" aria-label="ECLIPSE: explore, lute e recupere as memórias"></canvas>
+<div id="hud" hidden><div class="hudleft"><div class="hearts" id="hearts">♥ ♥ ♥</div><div class="memory" id="memory">ECOS 0 / 3</div></div><div class="roomlabel" id="roomlabel">CINZAS</div></div>
+<div class="hint" id="hint" hidden></div>
+<div class="mobile" id="mobile"><div class="cross"><button class="pad up" data-key="up" aria-label="Cima">▲</button><button class="pad left" data-key="left" aria-label="Esquerda">◀</button><button class="pad down" data-key="down" aria-label="Baixo">▼</button><button class="pad right" data-key="right" aria-label="Direita">▶</button></div><div class="actions"><button class="action interact" data-key="interact">OUVIR</button><button class="action attack" data-key="attack">GOLPE</button></div></div>
+</main>
+<script>
+'use strict';
+// ECLIPSE — jogo-base: tela 320×180, tile lógico de 8 px e arte procedural.
+const canvas=document.querySelector('#game'),ctx=canvas.getContext('2d',{alpha:false});
+ctx.imageSmoothingEnabled=false;
+const W=320,H=180,T=8;
+const hud=document.querySelector('#hud'),hintEl=document.querySelector('#hint'),heartsEl=document.querySelector('#hearts'),memoryEl=document.querySelector('#memory'),roomEl=document.querySelector('#roomlabel');
+const keys={left:false,right:false,up:false,down:false,attack:false,interact:false};
+let state='title',last=0,tick=0,shake=0,flash=0,roomIndex=0,memories=0,dialogue='',dialogueUntil=0,toast='',toastUntil=0,ending=false,bossDefeated=false;
+let player,enemies=[],particles=[],roomMemory=[],gateOpen=false;
+const rooms=[
+ {name:'AS CINZAS',sub:'O que resta também lembra.',walls:[[0,0,320,8],[0,172,320,8],[0,0,8,180],[312,0,8,180],[76,42,8,48],[76,100,8,36],[136,8,8,38],[136,128,8,44],[202,48,8,52],[202,118,8,46]],door:'right',memory:{x:264,y:78},enemies:[{x:180,y:84,hp:2}]},
+ {name:'A CAPELA VAZIA',sub:'Alguém ainda espera por você.',walls:[[0,0,320,8],[0,172,320,8],[0,0,8,180],[312,0,8,180],[52,40,52,8],[52,40,8,42],[52,126,56,8],[104,82,8,52],[150,8,8,48],[150,124,8,48],[232,42,8,48],[232,104,8,52]],door:'both',memory:{x:276,y:136},enemies:[{x:190,y:52,hp:2},{x:193,y:138,hp:2}],eira:{x:84,y:88}},
+ {name:'O LIMIAR',sub:'A alvorada cobra seu preço.',walls:[[0,0,320,8],[0,172,320,8],[0,0,8,180],[312,0,8,180],[56,36,8,42],[56,102,8,42],[112,8,8,48],[112,124,8,48],[174,38,8,44],[174,106,8,48],[238,8,8,50],[238,122,8,50]],door:'left',memory:{x:274,y:88},enemies:[{x:215,y:86,hp:5,boss:true}]}
+];
+function newPlayer(x=28,y=88){return{x,y,w:7,h:10,hp:3,face:1,speed:57,attack:0,invuln:0,walk:0}}
+function enterRoom(i,from){roomIndex=i;const r=rooms[i];player.x=from==='left'?296:from==='right'?16:28;player.y=88;player.invuln=.65;enemies=r.enemies.filter(e=>!(i===2&&e.boss&&bossDefeated)).map((e,n)=>({...e,id:n,max:e.hp,hit:0,flash:0,phase:Math.random()*6.28}));roomMemory=r.memory&&!r.memory.taken?[{...r.memory}]:[];particles=[];dialogue='';gateOpen=i===2&&bossDefeated&&memories>=3;toast=r.sub;toastUntil=performance.now()+2400;updateHUD()}
+function startGame(){player=newPlayer();memories=0;bossDefeated=false;gateOpen=false;rooms.forEach(r=>{if(r.memory)r.memory.taken=false});ending=false;state='playing';hud.hidden=false;enterRoom(0,'right')}
+function updateHUD(){heartsEl.textContent='♥ '.repeat(Math.max(0,player?.hp||0)).trim()||'—';memoryEl.textContent=`ECOS ${memories} / 3`;roomEl.textContent=rooms[roomIndex]?.name||''}
+function say(text,ms=2600){dialogue=text;dialogueUntil=performance.now()+ms;hintEl.textContent=text;hintEl.hidden=false;hintEl.dataset.dialogue='yes'}
+function rectHit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+function blocked(x,y,w,h){const r=rooms[roomIndex];return r.walls.some(([a,b,c,d],i)=>{if((i===2||i===3)&&y+h>70&&y<110){if(i===2&&roomIndex>0)return false;if(i===3&&(roomIndex<2||gateOpen))return false}return rectHit({x,y,w,h},{x:a,y:b,w:c,h:d})})}
+function moveAxis(obj,dx,dy){if(dx){const nx=obj.x+dx;if(!blocked(nx,obj.y,obj.w,obj.h))obj.x=nx}if(dy){const ny=obj.y+dy;if(!blocked(obj.x,ny,obj.w,obj.h))obj.y=ny}}
+function near(a,b,d=20){return Math.hypot((a.x+a.w/2)-(b.x||b.x+b.w/2),(a.y+a.h/2)-(b.y||b.y+b.h/2))<d}
+function burst(x,y,color,n=8){for(let i=0;i<n;i++){const a=Math.random()*6.28,s=8+Math.random()*30;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:.35+Math.random()*.55,max:.9,color})}}
+function tryAttack(){if(state!=='playing'||player.attack>0)return;player.attack=.24;player.walk+=.3;const reach={x:player.x+(player.face>0?5:-14),y:player.y-3,w:17,h:16};let hit=false;for(const e of enemies){if(e.hp>0&&rectHit(reach,{x:e.x-2,y:e.y-3,w:e.boss?18:12,h:e.boss?18:12})){e.hp--;e.hit=.13;e.flash=.14;hit=true;burst(e.x+4,e.y+5,'#f1bc78',5);if(e.hp<=0){burst(e.x+4,e.y+5,'#d58b7a',13);if(e.boss){bossDefeated=true;gateOpen=memories>=3;toast=gateOpen?'O guardião se desfaz. A passagem está livre.':'O guardião caiu. Reúna os três ecos para cruzar.';toastUntil=performance.now()+3200}}}}if(hit){shake=.08}}
+function interact(){if(state==='title'){startGame();return}if(state==='dead'){startGame();return}if(state==='won'){state='title';hud.hidden=true;return}if(state!=='playing')return;const r=rooms[roomIndex];if(r.eira&&near(player,{x:r.eira.x,y:r.eira.y},25)){say('EIRA: As lembranças não são suas. Mas a escolha, sim.');return}if(roomMemory.length&&near(player,roomMemory[0],23)){roomMemory[0].taken=true;if(rooms[roomIndex].memory)rooms[roomIndex].memory.taken=true;memories++;if(bossDefeated&&memories>=3){gateOpen=true;toast='Os três ecos se unem. O limiar está aberto.';toastUntil=performance.now()+3200}burst(roomMemory[0].x,roomMemory[0].y,'#f1d18c',20);say(['Um nome: Eira.','Uma promessa: voltar.','Amanhecer não é perdão.'][memories-1],3200);updateHUD();return}if(roomIndex===2&&gateOpen&&player.x>285){winGame();return}say('Só resta escutar o silêncio.',1500)}
+function transition(){if(player.x>310&&roomIndex<2){if(roomIndex===0||memories>0){enterRoom(roomIndex+1,'left')}else{player.x=304;say('A passagem responde aos ecos.',1500)}}else if(player.x<2&&roomIndex>0){enterRoom(roomIndex-1,'right')}else if(player.x>311&&roomIndex===2&&gateOpen){winGame()}}
+function winGame(){state='won';ending=true;burst(295,88,'#f5d492',30);say('Você atravessa o limiar. O céu ainda está escuro.',99999)}
+function update(dt,now){tick+=dt;if(state==='playing'){
+ const dx=(keys.right?1:0)-(keys.left?1:0),dy=(keys.down?1:0)-(keys.up?1:0),len=Math.hypot(dx,dy)||1;
+ if(dx)player.face=dx>0?1:-1;const pace=player.speed*dt;moveAxis(player,dx/len*pace,dy/len*pace);if(dx||dy)player.walk+=dt*10;
+ if(keys.attack)tryAttack();player.attack=Math.max(0,player.attack-dt);player.invuln=Math.max(0,player.invuln-dt);
+ for(const e of enemies){if(e.hp<=0)continue;e.phase+=dt*2.7;e.flash=Math.max(0,e.flash-dt);e.hit=Math.max(0,e.hit-dt);const d=Math.hypot(player.x-e.x,player.y-e.y);if(d<94){const sp=e.boss?19:13;if(d>12){const vx=(player.x-e.x)/(d||1)*sp*dt,vy=(player.y-e.y)/(d||1)*sp*dt;moveAxis(e,vx,vy)}}if(rectHit({x:player.x+1,y:player.y+1,w:5,h:8},{x:e.x-1,y:e.y-1,w:e.boss?15:10,h:e.boss?15:10})&&player.invuln<=0){player.hp--;player.invuln=.9;shake=.16;burst(player.x+3,player.y+5,'#e97570',8);updateHUD();if(player.hp<=0){state='dead';say('A cinza cobre tudo. Pressione R para tentar outra vez.',99999)}}}
+ for(const p of particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=Math.pow(.08,dt);p.vy*=Math.pow(.08,dt);p.life-=dt}particles=particles.filter(p=>p.life>0);if(shake>0)shake=Math.max(0,shake-dt);if(flash>0)flash-=dt;transition();if(now>dialogueUntil&&hintEl.dataset.dialogue==='yes'){hintEl.hidden=true;hintEl.dataset.dialogue=''}
+ }else if(state==='won'){for(const p of particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt}particles=particles.filter(p=>p.life>0)}
+ if(now>toastUntil)toast='';}
+function drawPlayer(){if(player.invuln>0&&Math.floor(tick*22)%2===0)return;const x=Math.round(player.x),y=Math.round(player.y),step=Math.floor(player.walk)%2;ctx.fillStyle='#11131a';ctx.fillRect(x,y+9,8,2);ctx.fillStyle='#25232a';ctx.fillRect(x+1,y+8+(step?0:1),2,3);ctx.fillRect(x+5,y+8+(step?1:0),2,3);ctx.fillStyle='#d5c6ad';ctx.fillRect(x+1,y+3,6,6);ctx.fillStyle='#e6d5bd';ctx.fillRect(x+2,y,5,5);ctx.fillStyle='#30313b';ctx.fillRect(x+(player.face>0?0:6),y+3,2,2);ctx.fillStyle='#9a7165';ctx.fillRect(x+(player.face>0?5:1),y+4,1,1);ctx.fillStyle='#59616c';ctx.fillRect(x+(player.face>0?6:0),y+5,2,4);ctx.fillStyle='#c89c69';ctx.fillRect(x+(player.face>0?7:0),y+6,1,2);
+ if(player.attack>0){ctx.save();ctx.globalAlpha=Math.min(1,player.attack*5);ctx.fillStyle='#f6d79d';ctx.fillRect(x+(player.face>0?8:-10),y+2,9,2);ctx.fillRect(x+(player.face>0?12:-12),y+4,3,7);ctx.fillStyle='#fff0c8';ctx.fillRect(x+(player.face>0?10:-8),y+5,5,1);ctx.restore()}}
+function drawParticles(){for(const p of particles){ctx.globalAlpha=Math.max(0,p.life/p.max);ctx.fillStyle=p.color;ctx.fillRect(Math.round(p.x),Math.round(p.y),2,2)}ctx.globalAlpha=1}
+function text(str,x,y,size,color,align='left'){ctx.font=`${size}px monospace`;ctx.textAlign=align;ctx.textBaseline='top';ctx.fillStyle=color;ctx.fillText(str,x,y)}
+function overlay(){if(state==='title'){
+ ctx.fillStyle='#080a10b8';ctx.fillRect(0,0,W,H);ctx.fillStyle='#d8b576';ctx.beginPath();ctx.arc(160,55,26,0,Math.PI*2);ctx.fill();ctx.fillStyle='#131720';ctx.beginPath();ctx.arc(167,49,22,0,Math.PI*2);ctx.fill();ctx.fillStyle='#e8dfca';ctx.font='bold 22px monospace';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('ECLIPSE',160,88);ctx.fillStyle='#c6a575';ctx.font='8px monospace';ctx.fillText('CINZAS DO AMANHÃ',160,103);ctx.fillStyle='#c0b9ad';ctx.font='7px monospace';ctx.fillText('Um eco. Uma lâmina. O que resta de você.',160,120);ctx.fillStyle='#fff0cb';ctx.fillText('PRESSIONE ENTER / TOQUE PARA COMEÇAR',160,147);ctx.fillStyle='#777981';ctx.fillText('WASD / SETAS mover   •   ESPAÇO atacar   •   E interagir',160,162);
+ }else if(state==='dead'||state==='won'){
+ ctx.fillStyle='#090a10b8';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle=state==='won'?'#f0d7a1':'#df8278';ctx.font='bold 15px monospace';ctx.fillText(state==='won'?'A CINZA NÃO É O FIM':'VOCÊ SE PERDEU NO ECLIPSE',160,76);ctx.fillStyle='#e8e0d1';ctx.font='8px monospace';ctx.fillText(state==='won'?'As memórias seguem com você.':'Pressione R ou toque para recomeçar.',160,96);ctx.fillStyle='#aaa39b';ctx.fillText(state==='won'?'ENTER para voltar ao início':'Recupere os ecos e atravesse o limiar.',160,112)
+ }
+ if(state==='playing'&&toast&&performance.now()<toastUntil){ctx.fillStyle='#e5c486';ctx.font='7px monospace';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(toast,160,20)}
+}
+function render(){ctx.save();if(shake>0)ctx.translate((Math.random()-.5)*3,(Math.random()-.5)*2);drawBackground();for(const m of roomMemory)drawMemory(m);const r=rooms[roomIndex];if(r.eira){drawEira(r.eira);if(player&&near(player,{x:r.eira.x,y:r.eira.y},32)){ctx.fillStyle='#edcf93';ctx.fillRect(r.eira.x+2,r.eira.y-8,3,1);ctx.fillRect(r.eira.x+4,r.eira.y-9,1,1)}}for(const e of enemies)drawEnemy(e);if((state==='playing'||state==='dead'||state==='won')&&player)drawPlayer();drawParticles();overlay();ctx.restore();if(flash>0){ctx.fillStyle=`rgba(255,235,195,${flash})`;ctx.fillRect(0,0,W,H)}}
+function frame(now){const dt=Math.min(.04,(now-last)/1000||0);last=now;update(dt,now);render();requestAnimationFrame(frame)}
+function keyDown(e){const k=e.key.toLowerCase();if(['arrowup','arrowdown','arrowleft','arrowright',' ','enter'].includes(k))e.preventDefault();if(k==='arrowleft'||k==='a')keys.left=true;if(k==='arrowright'||k==='d')keys.right=true;if(k==='arrowup'||k==='w')keys.up=true;if(k==='arrowdown'||k==='s')keys.down=true;if(k===' '||k==='j'||k==='z'){keys.attack=true;if(!e.repeat)tryAttack()}if(k==='e'||k==='x'){keys.interact=true;if(!e.repeat)interact()}if(k==='enter'&&!e.repeat){if(state==='title')startGame();else if(state==='won') {state='title';hud.hidden=true} else if(state==='dead')startGame()}if(k==='r'&&state==='dead')startGame()}
+function keyUp(e){const k=e.key.toLowerCase();if(k==='arrowleft'||k==='a')keys.left=false;if(k==='arrowright'||k==='d')keys.right=false;if(k==='arrowup'||k==='w')keys.up=false;if(k==='arrowdown'||k==='s')keys.down=false;if(k===' '||k==='j'||k==='z')keys.attack=false;if(k==='e'||k==='x')keys.interact=false}
+window.addEventListener('keydown',keyDown);window.addEventListener('keyup',keyUp);window.addEventListener('blur',()=>Object.keys(keys).forEach(k=>keys[k]=false));canvas.addEventListener('pointerdown',()=>{if(state==='title')startGame();else if(state==='dead')startGame();else if(state==='won'){state='title';hud.hidden=true}});
+for(const button of document.querySelectorAll('[data-key]')){const k=button.dataset.key;button.addEventListener('pointerdown',e=>{e.preventDefault();button.setPointerCapture(e.pointerId);if(k==='attack')tryAttack();else if(k==='interact')interact();else keys[k]=true});const stop=e=>{e.preventDefault();if(k in keys)keys[k]=false};button.addEventListener('pointerup',stop);button.addEventListener('pointercancel',stop);button.addEventListener('lostpointercapture',stop)}
+requestAnimationFrame(frame);
+function box(x,y,w,h,fill,stroke){ctx.fillStyle=fill;ctx.fillRect(x,y,w,h);if(stroke){ctx.strokeStyle=stroke;ctx.strokeRect(x+.5,y+.5,w-1,h-1)}}
+function drawBackground(){const r=rooms[roomIndex];let g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#171a25');g.addColorStop(.63,'#22212a');g.addColorStop(1,'#11151c');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ // Distant ruined arches and a faint eclipse halo.
+ ctx.fillStyle='#24232b';for(let i=0;i<6;i++){const x=i*61-17;ctx.fillRect(x,27,3,111);ctx.fillRect(x-9,24,21,4);ctx.fillRect(x-5,18,13,7);}
+ ctx.fillStyle='#2e2930';ctx.beginPath();ctx.arc(263,48,25,0,Math.PI*2);ctx.fill();ctx.fillStyle='#171a24';ctx.beginPath();ctx.arc(267,44,21,0,Math.PI*2);ctx.fill();
+ // Tiled stone floor, procedural cracks and edge highlights.
+ for(let y=8;y<172;y+=T){for(let x=8;x<312;x+=T){const n=((x*13+y*7+roomIndex*17)%19);ctx.fillStyle=n<5?'#29262c':n<11?'#26252d':'#292830';ctx.fillRect(x,y,T,T);if(n===2){ctx.fillStyle='#363039';ctx.fillRect(x+1,y+1,2,1);ctx.fillRect(x+2,y+2,1,2)}if((x+y)%11===0){ctx.fillStyle='#201f27';ctx.fillRect(x+5,y+5,2,1)}}}
+ // In-world collision architecture.
+ for(const [x,y,w,h] of r.walls.slice(4)){ctx.fillStyle='#39333a';ctx.fillRect(x,y,w,h);ctx.fillStyle='#514448';ctx.fillRect(x,y,w,2);ctx.fillStyle='#211f27';ctx.fillRect(x+w-2,y+2,2,h-2);if(w>12){for(let a=x+6;a<x+w;a+=12){ctx.fillStyle='#26242c';ctx.fillRect(a,y+3,1,h-5)}}}
+ // Room lights and ash specks.
+ for(let i=0;i<24;i++){const x=(i*67+roomIndex*31)%W,y=(i*43+tick*2)%H;ctx.fillStyle=i%4===0?'#d2a87255':'#a7a5a044';ctx.fillRect(x,y,1,1)}
+ // Door marker.
+ const doors=roomIndex===1?[5,298]:roomIndex===2?[5,298]:[298];for(const doorX of doors){const exitDoor=roomIndex===2&&doorX>200;ctx.fillStyle=exitDoor&&gateOpen?'#b89964':'#584b48';ctx.fillRect(doorX,72,8,36);ctx.fillStyle='#201c24';ctx.fillRect(doorX+2,76,4,32);if(exitDoor&&gateOpen){ctx.fillStyle='#e2bd78';ctx.fillRect(doorX+3,77,2,29)}}
+}
+function drawMemory(m){const pulse=Math.sin(tick*3)*1.5;ctx.save();ctx.globalAlpha=.18;ctx.fillStyle='#f2cf89';ctx.beginPath();ctx.arc(m.x+4,m.y+4,10+pulse,0,7);ctx.fill();ctx.restore();ctx.fillStyle='#f4d38b';ctx.fillRect(m.x+2,m.y,4,8);ctx.fillStyle='#fff0c5';ctx.fillRect(m.x+3,m.y+1,2,3);ctx.fillStyle='#8c604f';ctx.fillRect(m.x+1,m.y+7,6,2)}
+function drawEira(e){ctx.fillStyle='#342c39';ctx.fillRect(e.x,e.y+3,9,10);ctx.fillStyle='#c9b8a4';ctx.fillRect(e.x+2,e.y,6,6);ctx.fillStyle='#3d3442';ctx.fillRect(e.x+1,e.y-1,8,3);ctx.fillStyle='#b9a170';ctx.fillRect(e.x+7,e.y+7,2,4);}
+function drawEnemy(e){if(e.hp<=0)return;const bob=Math.round(Math.sin(e.phase)*1);ctx.fillStyle='#17161c';ctx.fillRect(e.x-1,e.y+8+bob,e.boss?15:11,3);ctx.fillStyle=e.flash?'#fff0c0':e.boss?'#563c4a':'#493844';ctx.fillRect(e.x,e.y+2+bob,e.boss?13:9,e.boss?12:9);ctx.fillStyle=e.boss?'#ba746e':'#ac7770';ctx.fillRect(e.x+2,e.y+bob,e.boss?8:5,5);ctx.fillStyle='#f2c276';ctx.fillRect(e.x+2,e.y+4+bob,2,1);ctx.fillRect(e.x+6,e.y+4+bob,2,1);ctx.fillStyle='#231f29';ctx.fillRect(e.x+2,e.y+8+bob,e.boss?9:5,2);
+ if(e.boss){ctx.fillStyle='#806055';ctx.fillRect(e.x-3,e.y+1+bob,3,5);ctx.fillRect(e.x+13,e.y+1+bob,3,5);ctx.fillStyle='#c77d72';ctx.fillRect(e.x+4,e.y-2+bob,5,3)}if(e.hp<e.max){box(e.x-2,e.y-5,e.boss?18:13,2,'#241e26');box(e.x-2,e.y-5,(e.boss?18:13)*e.hp/e.max,2,'#d78470')}}
+
+</script>
+</body>
+</html>
